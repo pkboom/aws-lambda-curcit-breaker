@@ -37,7 +37,7 @@ class CircuitBreaker {
       if (this.canAttempt()) {
         this.state = STATES.HALF
       } else {
-        throw new Error('Circuit is open. Please try again later.')
+        throw new Error('Circuit is open.')
       }
     }
 
