@@ -29,11 +29,10 @@ class CircuitBreaker {
 
   async fire() {
     let data = await this.getState()
-    let itemData = data.Item
 
-    Object.assign(this, itemData)
+    Object.assign(this, data.Item)
 
-    if (this.state === STATES.OPEN) {
+    if (this.open()) {
       if (this.canAttempt()) {
         this.state = STATES.HALF
       } else {
@@ -44,30 +43,14 @@ class CircuitBreaker {
     try {
       let response = await axios(this.request)
 
-      return await this.success(response)
-    } catch (err) {
-      return this.fail(err.message)
+      await this.success()
+
+      return response
+    } catch (error) {
+      this.fail()
+
+      throw error
     }
-  }
-
-  canAttempt() {
-    return this.nextAttempt <= Date.now()
-  }
-
-  async fail(error) {
-    this.log()
-
-    this.failureCount++
-
-    if (this.state === STATES.HALF || this.failureCount >= this.failureThreshold) {
-      this.state = STATES.OPEN
-
-      this.nextAttempt = Date.now() + this.timeout
-    }
-
-    await this.updateState()
-
-    return error
   }
 
   async getState() {
@@ -90,34 +73,42 @@ class CircuitBreaker {
     }
   }
 
-  log() {
-    console.log(`State: ${this.state}`)
+  canAttempt() {
+    return this.nextAttempt <= Date.now()
   }
 
-  close() {
-    this.successCount = 0
-    this.failureCount = 0
-    this.state = 'CLOSED'
+  open() {
+    return this.state === STATES.OPEN
   }
 
-  async success(response) {
+  async success() {
     this.log()
 
-    if (this.state === STATES.HALF) {
-      this.successCount++
+    if (this.half() && this.successCount++ > this.successThreshold) {
+      this.successCount = 0
 
-      if (this.successCount > this.successThreshold) {
-        this.successCount = 0
-
-        this.state = 'CLOSED'
-      }
+      this.state = STATES.CLOSED
     }
 
     this.failureCount = 0
 
     await this.updateState()
+  }
 
-    return response
+  async fail() {
+    this.log()
+
+    if (this.half() || this.failureCount++ > this.failureThreshold) {
+      this.state = STATES.OPEN
+
+      this.nextAttempt = Date.now() + this.timeout
+    }
+
+    await this.updateState()
+  }
+
+  half() {
+    return this.state === STATES.HALF
   }
 
   async updateState() {
@@ -139,12 +130,14 @@ class CircuitBreaker {
         ReturnValues: 'UPDATED_NEW',
       }
 
-      let response = await client.send(new UpdateItemCommand(input))
-
-      return response
-    } catch (err) {
-      console.error(err)
+      await client.send(new UpdateItemCommand(input))
+    } catch (error) {
+      throw error
     }
+  }
+
+  log() {
+    console.log(`State: ${this.state}`)
   }
 }
 
